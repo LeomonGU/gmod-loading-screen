@@ -239,37 +239,59 @@
         });
       }
 
-      // -------- Musik (Autoplay-Fallback + Toggle + Speicherung) --------
-      var audio = $('bgm');
-      var musicBtn = $('musicBtn');
-      ['assets/music/theme.ogg','assets/music/theme.mp3'].forEach(function(src){
-        var s = document.createElement('source'); s.src = src; audio.appendChild(s);
-      });
+// -------- Musik (robust: load(), klare Toggle-Logik, persist) --------
+const audio = $('bgm');
+const musicBtn = $('musicBtn');
 
-      function renderBtn(){
-        musicBtn.textContent = 'Musik: ' + ((audio.muted || audio.paused) ? 'Aus' : 'An');
-      }
-      var pref = (function(){ try { return localStorage.getItem('music') || 'on'; } catch(e){ return 'on'; } })();
-      if (pref === 'on') {
-        audio.volume = 0.01;
-        audio.muted = true;
-        var p = audio.play && audio.play();
-        if (p && p.then){ p.then(function(){ setTimeout(function(){ audio.muted = false; renderBtn(); }, 200); }).catch(function(){ audio.muted = false; renderBtn(); }); }
-        else { audio.muted = false; renderBtn(); }
-      } else {
-        audio.pause && audio.pause(); audio.currentTime = 0; audio.muted = true; renderBtn();
-      }
+// Quellen anhängen und EXPLIZIT laden
+['assets/music/theme.ogg','assets/music/theme.mp3'].forEach(src=>{
+  const s = document.createElement('source'); s.src = src; audio.appendChild(s);
+});
+audio.load(); // ← WICHTIG, sonst ignoriert der Player die neuen <source>-Tags
 
-      musicBtn.addEventListener('click', function(){
-        if (audio.paused){ try { audio.play(); audio.muted = false; } catch(e){} }
-        else { audio.muted = !audio.muted; if (audio.muted) audio.pause(); }
-        var on = (!audio.muted && !audio.paused);
-        try { localStorage.setItem('music', on ? 'on' : 'off'); } catch(e){}
-        renderBtn();
-      });
+function renderBtn(){
+  const on = !audio.paused && !audio.muted;
+  musicBtn.textContent = 'Musik: ' + (on ? 'An' : 'Aus');
+}
 
-      renderBtn();
-    })();
+// gespeicherte Präferenz lesen
+let pref = 'on';
+try { pref = localStorage.getItem('music') || 'on'; } catch(e){}
+
+// Versuche nur leise anzuspielen; wenn Browser blockt, bleibt es stumm,
+// aber der Klick funktioniert dann sicher.
+audio.volume = 0.1;            // 0.35 = deutlich hörbar
+audio.muted  = (pref !== 'on'); // wenn user "off" gespeichert hat, start stumm
+
+if (pref === 'on') {
+  // Autoplay versuchen; wenn geblockt, egal – Button-Klick startet es.
+  audio.play().catch(()=>{ /* ignore */ });
+}
+renderBtn();
+
+// Klick-Toggle: play/pause statt nur muted flippen
+musicBtn.addEventListener('click', async ()=>{
+  try {
+    if (audio.paused) {
+      // Sicherstellen, dass Quellen geladen sind
+      if (!audio.src && audio.children.length) audio.load();
+      audio.muted = false;
+      audio.volume = Math.max(audio.volume, 0.25);
+      await audio.play();
+      try { localStorage.setItem('music','on'); } catch(e){}
+    } else {
+      audio.pause();
+      audio.muted = true;
+      try { localStorage.setItem('music','off'); } catch(e){}
+    }
+  } catch(e) {
+    // Fallback: neu laden und wieder versuchen
+    try { audio.load(); await audio.play(); audio.muted = false; localStorage.setItem('music','on'); }
+    catch(_) {}
+  }
+  renderBtn();
+});
+
   </script>
 </body>
 </html>
