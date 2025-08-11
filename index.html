@@ -108,127 +108,153 @@
 
   <script>
     (function () {
-      const $ = (id)=>document.getElementById(id);
-      const q = new URLSearchParams(location.search);
-      const get = (keys, fb='unbekannt')=>{
-        for (const k of (Array.isArray(keys)?keys:[keys])) {
-          const v = q.get(k);
-          if (v && v.trim()) return v.trim();
+      var $ = function(id){ return document.getElementById(id); };
+
+      // ---- Query Fallback (funktioniert auch ohne URLSearchParams) ----
+      function getQuery(){
+        try { return new URLSearchParams(location.search); }
+        catch(e){
+          var obj = {};
+          var s = location.search.replace(/^\?/, '');
+          if (s) s.split('&').forEach(function(p){
+            var kv = p.split('=');
+            var k = decodeURIComponent((kv[0]||'').replace(/\+/g,' '));
+            var v = decodeURIComponent((kv[1]||'').replace(/\+/g,' '));
+            if (k) obj[k] = v;
+          });
+          return { get: function(k){ return obj[k] || null; } };
+        }
+      }
+      var q = getQuery();
+      function get(keys, fb){
+        if (fb === void 0) fb = 'unbekannt';
+        if (Object.prototype.toString.call(keys) !== '[object Array]') keys = [keys];
+        for (var i=0;i<keys.length;i++){
+          var v = q.get(keys[i]);
+          if (v && (''+v).trim()) return (''+v).trim();
         }
         return fb;
-      };
+      }
 
       // -------- Grunddaten --------
-      const steamid = get(['steamid','SteamId','sid','s'], '');
-      const map     = get(['map','Map','m','mapname'], 'unbekannt');
-      const ip      = get(['ip','host','address','h']);
-      const port    = get(['port','p']);
-      const hostname= get(['hostname','name','H']);
-      const gamemode= get(['gamemode','mode','g']);
+      var steamid  = get(['steamid','SteamId','sid','s'], '');
+      var map      = get(['map','Map','m','mapname'], 'unbekannt');
+      var ip       = get(['ip','host','address','h']);
+      var port     = get(['port','p']);
+      var hostname = get(['hostname','name','H']);
+      var gamemode = get(['gamemode','mode','g']);
 
       $('steamid').textContent = steamid || 'unbekannt';
       $('map').textContent     = map || 'unbekannt';
 
-      const isBad = (v)=>!v || v==='unbekannt' || v.includes('%') || v==='-';
-      if (isBad(gamemode)) $('modeBox').classList.add('hidden'); else $('gamemode').textContent = gamemode;
-      let serverText = '';
+      function isBad(v){ return !v || v==='unbekannt' || (''+v).indexOf('%')>-1 || v==='-'; }
+      if (isBad(gamemode)) $('modeBox').className += ' hidden'; else $('gamemode').textContent = gamemode;
+      var serverText = '';
       if (!isBad(hostname)) serverText = hostname; else if (!isBad(ip)) serverText = ip;
       if (!isBad(port) && serverText) serverText += ':' + port;
-      if (serverText) $('server').textContent = serverText; else $('serverBox').classList.add('hidden');
+      if (serverText) $('server').textContent = serverText; else $('serverBox').className += ' hidden';
 
-      // -------- Steam Profil (Name + Avatar) --------
-      if (/^\d{17}$/.test(steamid)) {
-        fetch(`/.netlify/functions/steam_profile?steamid=${encodeURIComponent(steamid)}&t=${Date.now()}`, { cache: 'no-store' })
-          .then(r => r.json().then(j => ({ ok: r.ok, j })))
-          .then(({ ok, j }) => {
-            if (!ok || !j || j.error) return;
-            if (j.persona) $('player').textContent = j.persona;
-            if (j.communityurl) $('personaId').textContent = j.communityurl;
-            if (j.avatar) {
-              const av = $('avatar');
-              av.src = j.avatar;
-              av.alt = j.persona || 'Avatar';
-              av.onload = ()=>{ av.style.display = 'block'; };
-            }
-          })
-          .catch(()=>{});
+      // -------- Hintergrundbilder (robust + kompatibel) --------
+      var ORIGIN = location.origin || (location.protocol + '//' + location.host);
+      var candidates = [
+        ORIGIN + '/assets/img/bg1.webp', ORIGIN + '/assets/img/bg2.webp', ORIGIN + '/assets/img/bg3.webp', ORIGIN + '/assets/img/bg4.webp', ORIGIN + '/assets/img/bg5.webp',
+        ORIGIN + '/assets/img/bg1.jpg',  ORIGIN + '/assets/img/bg2.jpg',  ORIGIN + '/assets/img/bg3.jpg',  ORIGIN + '/assets/img/bg4.jpg',  ORIGIN + '/assets/img/bg5.jpg'
+      ];
+
+      var bust = 't=' + Date.now();
+      function withBust(url){ return url + (url.indexOf('?')>-1 ? '&' : '?') + bust; }
+
+      function preloadExisting(list, cb){
+        var remaining = list.length, out = [];
+        if (!remaining) return cb([]);
+        list.forEach(function(src){
+          var img = new Image();
+          img.onload  = function(){ out.push(src); if (--remaining===0) cb(out); };
+          img.onerror = function(){ if (--remaining===0) cb(out); };
+          img.src = withBust(src);
+        });
       }
 
-// -------- Hintergrundbilder (robust + kompatibel) --------
-const ORIGIN = location.origin; // absolute URLs helfen dem GMod-CEF
-const candidates = [
-  `${ORIGIN}/assets/img/bg1.webp`, `${ORIGIN}/assets/img/bg2.webp`, `${ORIGIN}/assets/img/bg3.webp`, `${ORIGIN}/assets/img/bg4.webp`, `${ORIGIN}/assets/img/bg5.webp`,
-  `${ORIGIN}/assets/img/bg1.jpg`,  `${ORIGIN}/assets/img/bg2.jpg`,  `${ORIGIN}/assets/img/bg3.jpg`,  `${ORIGIN}/assets/img/bg4.jpg`,  `${ORIGIN}/assets/img/bg5.jpg`
-];
+      var bgA = $('bgA'), bgB = $('bgB');
+      var useA = true, idx = 0;
+      function setBg(el, src){ el.style.backgroundImage = "url('" + withBust(src) + "')"; }
+      function swapBg(images){
+        var next = images[idx++ % images.length];
+        var top  = useA ? bgB : bgA;
+        setBg(top, next);
+        top.style.opacity = '.45';
+        (useA ? bgA : bgB).style.opacity = '0';
+        useA = !useA;
+      }
 
-// Cache-Busting gegen hartnäckiges CEF-Caching
-const bust = `t=${Date.now()}`;
-const withBust = url => url + (url.includes('?') ? '&' : '?') + bust;
+      preloadExisting(candidates, function(images){
+        if (!images.length) return;              // kein Bild gefunden -> Gradient bleibt
+        setBg(bgA, images[0]); bgA.style.opacity = '.45'; idx = 1;
+        if (images.length > 1) setInterval(function(){ swapBg(images); }, 8000);
+      });
 
-function preloadExisting(list){
-  return Promise.all(list.map(src => new Promise(res => {
-    const img = new Image();
-    img.onload  = () => res(src);
-    img.onerror = () => res(null);
-    img.src = withBust(src);
-  }))).then(arr => arr.filter(Boolean));
-}
+      // ---- Steam-Profil (XHR-Fallback statt nur fetch) ----
+      function getProfile(sid, cb){
+        var url = '/.netlify/functions/steam_profile?steamid=' + encodeURIComponent(sid) + '&t=' + Date.now();
+        if (window.fetch){
+          fetch(url, { cache:'no-store' })
+            .then(function(r){ return r.json().then(function(j){ return { ok:r.ok, j:j }; }); })
+            .then(function(ret){ cb(ret.ok ? ret.j : null); })
+            .catch(function(){ cb(null); });
+        } else {
+          var xhr = new XMLHttpRequest();
+          xhr.open('GET', url, true);
+          xhr.onreadystatechange = function(){
+            if (xhr.readyState === 4){
+              if (xhr.status === 200){
+                try { cb(JSON.parse(xhr.responseText)); } catch(e){ cb(null); }
+              } else cb(null);
+            }
+          };
+          xhr.send();
+        }
+      }
 
-const bgA = $('bgA'), bgB = $('bgB');
-let useA = true, idx = 0;
-
-function setBg(el, src){ el.style.backgroundImage = `url('${withBust(src)}')`; }
-function swapBg(images){
-  const next = images[idx++ % images.length];
-  const top = useA ? bgB : bgA;        // der Layer, der eingeblendet wird
-  setBg(top, next);
-  top.style.opacity = '.45';           // etwas sichtbarer als .28
-  (useA ? bgA : bgB).style.opacity = '0';
-  useA = !useA;
-}
-
-preloadExisting(candidates).then(images => {
-  if (!images.length) return;          // nichts gefunden -> Gradient bleibt
-  setBg(bgA, images[0]); bgA.style.opacity = '.45'; idx = 1;
-  if (images.length > 1) setInterval(() => swapBg(images), 8000);
-});
-
+      if (/^\d{17}$/.test(steamid)) {
+        getProfile(steamid, function(j){
+          if (!j || j.error) return;
+          if (j.persona) $('player').textContent = j.persona;
+          if (j.communityurl) $('personaId').textContent = j.communityurl;
+          if (j.avatar) {
+            var av = $('avatar');
+            av.src = j.avatar;
+            av.alt = j.persona || 'Avatar';
+            av.onload = function(){ av.style.display = 'block'; };
+          }
+        });
+      }
 
       // -------- Musik (Autoplay-Fallback + Toggle + Speicherung) --------
-      const audio = $('bgm');
-      const musicBtn = $('musicBtn');
-      // Quellen anhängen
-      ['assets/music/theme.ogg','assets/music/theme.mp3'].forEach(src=>{
-        const s = document.createElement('source'); s.src = src; audio.appendChild(s);
+      var audio = $('bgm');
+      var musicBtn = $('musicBtn');
+      ['assets/music/theme.ogg','assets/music/theme.mp3'].forEach(function(src){
+        var s = document.createElement('source'); s.src = src; audio.appendChild(s);
       });
 
       function renderBtn(){
         musicBtn.textContent = 'Musik: ' + ((audio.muted || audio.paused) ? 'Aus' : 'An');
       }
-      // gespeicherte Präferenz laden
-      const pref = localStorage.getItem('music') || 'on';
+      var pref = (function(){ try { return localStorage.getItem('music') || 'on'; } catch(e){ return 'on'; } })();
       if (pref === 'on') {
-        audio.volume = 0.01;
-        // Autoplay-Strategie: erst stumm starten, dann entstummen wenn erlaubt
+        audio.volume = 0.01; // deine aktuelle Lautstärke
         audio.muted = true;
-        audio.play().then(()=>{
-          setTimeout(()=>{ audio.muted = false; renderBtn(); }, 200);
-        }).catch(()=>{
-          audio.muted = false; renderBtn();
-        });
+        var p = audio.play && audio.play();
+        if (p && p.then){ p.then(function(){ setTimeout(function(){ audio.muted = false; renderBtn(); }, 200); }).catch(function(){ audio.muted = false; renderBtn(); }); }
+        else { audio.muted = false; renderBtn(); }
       } else {
-        audio.pause(); audio.currentTime = 0; audio.muted = true; renderBtn();
+        audio.pause && audio.pause(); audio.currentTime = 0; audio.muted = true; renderBtn();
       }
 
-      musicBtn.addEventListener('click', async ()=>{
-        if (audio.paused){
-          try { await audio.play(); audio.muted = false; } catch(e){}
-        } else {
-          audio.muted = !audio.muted;
-          if (audio.muted) audio.pause();
-        }
-        const on = (!audio.muted && !audio.paused);
-        localStorage.setItem('music', on ? 'on' : 'off');
+      musicBtn.addEventListener('click', function(){
+        if (audio.paused){ try { audio.play(); audio.muted = false; } catch(e){} }
+        else { audio.muted = !audio.muted; if (audio.muted) audio.pause(); }
+        var on = (!audio.muted && !audio.paused);
+        try { localStorage.setItem('music', on ? 'on' : 'off'); } catch(e){}
         renderBtn();
       });
 
