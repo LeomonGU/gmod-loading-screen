@@ -14,7 +14,7 @@
     .grid{display:grid; grid-template-columns: 1fr 1fr; gap:16px}
     .box{background:#0f1320; border-radius:14px; padding:14px; min-height:64px; border:1px solid rgba(255,255,255,.05)}
     .row{display:flex; align-items:center; gap:12px}
-    .avatar{width:36px; height:36px; border-radius:50%; background:#0a0d16; flex:0 0 36px; border:1px solid rgba(255,255,255,.08)}
+    .avatar{width:36px; height:36px; border-radius:50%; background:#0a0d16; flex:0 0 36px; border:1px solid rgba(255,255,255,.08); display:none}
     .label{font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:#93a1b6}
     .value{font-family:ui-monospace, Menlo, Consolas, "Courier New", monospace; font-size:14px; word-break:break-all}
     .value-plain{font-size:14px}
@@ -22,12 +22,13 @@
     .fill{height:100%; width:35%; background:linear-gradient(90deg,#43c6ff,#7c5cff); animation: sweep 2.3s ease-in-out infinite}
     @keyframes sweep{0%{transform:translateX(-80%)} 50%{transform:translateX(10%)} 100%{transform:translateX(120%)}}
     .footer{margin-top:18px; font-size:12px; color:#94a0b8; opacity:.85}
+    .hidden{display:none !important}
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Verbinde zum Server…</h1>
-    <div class="muted">Du lädst die Addons & Inhalte die du benötigst automatisch herunter. Das kann einen Moment dauern.</div>
+    <div class="muted">Du lädst Addons & Inhalte automatisch herunter. Das kann einen Moment dauern.</div>
 
     <div class="grid">
       <div class="box">
@@ -40,12 +41,12 @@
         <div class="value" id="map">–</div>
       </div>
 
-      <div class="box">
+      <div class="box" id="serverBox">
         <div class="label">Server</div>
         <div class="value-plain" id="server">–</div>
       </div>
 
-      <div class="box">
+      <div class="box" id="modeBox">
         <div class="label">Gamemode</div>
         <div class="value" id="gamemode">–</div>
       </div>
@@ -72,6 +73,7 @@
 
   <script>
     (function () {
+      const $ = (id)=>document.getElementById(id);
       const q = new URLSearchParams(location.search);
       const get = (keys, fb='unbekannt')=>{
         for (const k of (Array.isArray(keys)?keys:[keys])) {
@@ -81,37 +83,50 @@
         return fb;
       };
 
-      const data = {
-        steamid:  get(['steamid','SteamId','sid','s'], ''),
-        map:      get(['map','Map','m','mapname']),
-        ip:       get(['ip','host','address','h']),
-        port:     get(['port','p']),
-        hostname: get(['hostname','name','H']),
-        gamemode: get(['gamemode','mode','g'])
-      };
+      // Nur sichere Platzhalter wirklich nutzen
+      const steamid = get(['steamid','SteamId','sid','s'], '');
+      const map     = get(['map','Map','m','mapname'], 'unbekannt');
+      const ip      = get(['ip','host','address','h']);
+      const port    = get(['port','p']);
+      const hostname= get(['hostname','name','H']);
+      const gamemode= get(['gamemode','mode','g']);
 
-      // Grunddaten anzeigen
-      document.getElementById('steamid').textContent = data.steamid || 'unbekannt';
-      document.getElementById('map').textContent = data.map;
-      document.getElementById('gamemode').textContent = data.gamemode;
-      document.getElementById('server').textContent =
-        (data.hostname !== 'unbekannt' ? data.hostname : (data.ip !== 'unbekannt' ? data.ip : 'unbekannt')) +
-        (data.port!=='unbekannt' ? (data.hostname!=='unbekannt' || data.ip!=='unbekannt' ? ':'+data.port : '') : '');
+      // Anzeigen
+      $('steamid').textContent = steamid || 'unbekannt';
+      $('map').textContent     = map || 'unbekannt';
+
+      // Server/Gamemode nur zeigen, wenn echte Werte (keine %Platzhalter)
+      const isBad = (v)=>!v || v==='unbekannt' || v.includes('%') || v==='-';
+      if (isBad(gamemode)) {
+        $('modeBox').classList.add('hidden');
+      } else {
+        $('gamemode').textContent = gamemode;
+      }
+
+      let serverText = '';
+      if (!isBad(hostname)) serverText = hostname;
+      else if (!isBad(ip)) serverText = ip;
+      if (!isBad(port) && serverText) serverText += ':' + port;
+
+      if (serverText) $('server').textContent = serverText;
+      else $('serverBox').classList.add('hidden');
 
       // Spielername & Avatar via Netlify Function
-      const sid64 = data.steamid;
-      if (/^\d{17}$/.test(sid64)) {
-        fetch(`/.netlify/functions/steam_profile?steamid=${encodeURIComponent(sid64)}&t=${Date.now()}`, { cache: 'no-store' })
-          .then(r => r.ok ? r.json() : Promise.reject())
-          .then(j => {
-            if (!j || j.error) return;
-            if (j.persona) document.getElementById('player').textContent = j.persona;
-            if (j.communityurl) document.getElementById('personaId').textContent = j.communityurl;
-            const av = document.getElementById('avatar');
-            if (j.avatar) av.src = j.avatar;
-            av.alt = j.persona || 'Avatar';
+      if (/^\d{17}$/.test(steamid)) {
+        fetch(`/.netlify/functions/steam_profile?steamid=${encodeURIComponent(steamid)}&t=${Date.now()}`, { cache: 'no-store' })
+          .then(r => r.json().then(j => ({ ok: r.ok, j })))
+          .then(({ ok, j }) => {
+            if (!ok || !j || j.error) return; // lässt "Unbekannt" stehen
+            if (j.persona) $('player').textContent = j.persona;
+            if (j.communityurl) $('personaId').textContent = j.communityurl;
+            if (j.avatar) {
+              const av = $('avatar');
+              av.src = j.avatar;
+              av.alt = j.persona || 'Avatar';
+              av.onload = ()=>{ av.style.display = 'block'; };
+            }
           })
-          .catch(()=>{});
+          .catch(()=>{ /* still fine without */ });
       }
     })();
   </script>
