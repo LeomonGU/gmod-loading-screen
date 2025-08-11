@@ -195,7 +195,7 @@
       // gespeicherte Präferenz laden
       const pref = localStorage.getItem('music') || 'on';
       if (pref === 'on') {
-        audio.volume = 0.30;
+        audio.volume = 0.1;
         // Autoplay-Strategie: erst stumm starten, dann entstummen wenn erlaubt
         audio.muted = true;
         audio.play().then(()=>{
