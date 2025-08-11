@@ -154,32 +154,45 @@
           .catch(()=>{});
       }
 
-      // -------- Hintergrundbilder (Slideshow) --------
-      const images = [
-        'assets/img/bg1.webp',
-        'assets/img/bg2.webp',
-        'assets/img/bg3.webp',
-        'assets/img/bg4.webp',
-        'assets/img/bg5.webp'
-      ];
-      // Preload
-      images.forEach(src => { const img = new Image(); img.src = src; });
+// -------- Hintergrundbilder (robust + kompatibel) --------
+const ORIGIN = location.origin; // absolute URLs helfen dem GMod-CEF
+const candidates = [
+  `${ORIGIN}/assets/img/bg1.webp`, `${ORIGIN}/assets/img/bg2.webp`, `${ORIGIN}/assets/img/bg3.webp`, `${ORIGIN}/assets/img/bg4.webp`, `${ORIGIN}/assets/img/bg5.webp`,
+  `${ORIGIN}/assets/img/bg1.jpg`,  `${ORIGIN}/assets/img/bg2.jpg`,  `${ORIGIN}/assets/img/bg3.jpg`,  `${ORIGIN}/assets/img/bg4.jpg`,  `${ORIGIN}/assets/img/bg5.jpg`
+];
 
-      const bgA = $('bgA'), bgB = $('bgB');
-      let idx = 0, useA = true;
-      function setBg(el, src){ el.style.backgroundImage = `url('${src}')`; }
-      function swapBg(){
-        const next = images[idx++ % images.length];
-        const top = useA ? bgB : bgA; // der, der eingeblendet wird
-        setBg(top, next);
-        // crossfade
-        top.style.opacity = '.28';
-        (useA ? bgA : bgB).style.opacity = '0';
-        useA = !useA;
-      }
-      // Start: sofort erstes Bild zeigen
-      setBg(bgA, images[0]); bgA.style.opacity = '.28'; idx = 1;
-      if (images.length > 1) setInterval(swapBg, 8000);
+// Cache-Busting gegen hartnäckiges CEF-Caching
+const bust = `t=${Date.now()}`;
+const withBust = url => url + (url.includes('?') ? '&' : '?') + bust;
+
+function preloadExisting(list){
+  return Promise.all(list.map(src => new Promise(res => {
+    const img = new Image();
+    img.onload  = () => res(src);
+    img.onerror = () => res(null);
+    img.src = withBust(src);
+  }))).then(arr => arr.filter(Boolean));
+}
+
+const bgA = $('bgA'), bgB = $('bgB');
+let useA = true, idx = 0;
+
+function setBg(el, src){ el.style.backgroundImage = `url('${withBust(src)}')`; }
+function swapBg(images){
+  const next = images[idx++ % images.length];
+  const top = useA ? bgB : bgA;        // der Layer, der eingeblendet wird
+  setBg(top, next);
+  top.style.opacity = '.45';           // etwas sichtbarer als .28
+  (useA ? bgA : bgB).style.opacity = '0';
+  useA = !useA;
+}
+
+preloadExisting(candidates).then(images => {
+  if (!images.length) return;          // nichts gefunden -> Gradient bleibt
+  setBg(bgA, images[0]); bgA.style.opacity = '.45'; idx = 1;
+  if (images.length > 1) setInterval(() => swapBg(images), 8000);
+});
+
 
       // -------- Musik (Autoplay-Fallback + Toggle + Speicherung) --------
       const audio = $('bgm');
