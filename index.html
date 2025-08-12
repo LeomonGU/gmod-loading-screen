@@ -14,12 +14,13 @@
       overflow:hidden;
     }
 
-    /* Hintergrund-Layer für Bild-Slideshow */
-    .bg-layer{
-      position:fixed; inset:0; background:center/cover no-repeat;
-      opacity:.0; transition:opacity .8s ease;
+    /* Vollbild-Video-Hintergrund */
+    .bg-video{
+      position:fixed; inset:0; z-index:0;
+      width:100%; height:100%; object-fit:cover;
       filter:saturate(1.05) contrast(1.02);
-      pointer-events:none; z-index:0;
+      opacity:.55;              /* Helligkeit des Videos */
+      pointer-events:none;      /* blockiert keine Klicks */
     }
 
     .card{position:relative; z-index:1; width:min(820px,92vw); background:var(--panel);
@@ -39,23 +40,22 @@
     .footer{margin-top:18px; font-size:12px; color:#94a0b8; opacity:.85}
     .hidden{display:none !important}
 
-    /* Musik-Button */
-    .music-toggle{
-      position:fixed; right:16px; top:16px; z-index:2;
-      background:#0f1320; border:1px solid rgba(255,255,255,.08);
-      color:var(--text); padding:8px 12px; border-radius:999px; cursor:pointer;
-      font-size:13px;
+    /* Hinweis-Button, falls Autoplay mit Ton blockiert wird */
+    .video-hint{
+      position:fixed; right:16px; top:16px; z-index:10000;
+      background:#0f1320; border:1px solid rgba(255,255,255,.12);
+      color:var(--text); padding:8px 12px; border-radius:999px; cursor:pointer; font-size:13px; display:none;
     }
-    .music-toggle:hover{filter:brightness(1.1)}
+    .video-hint:hover{filter:brightness(1.1)}
   </style>
 </head>
 <body>
-  <!-- Zwei Layer für weiche Crossfades -->
-  <div class="bg-layer" id="bgA" style="opacity:.28"></div>
-  <div class="bg-layer" id="bgB"></div>
-
-  <button class="music-toggle" id="musicBtn">Musik: Aus</button>
-  <audio id="bgm" preload="auto" loop></audio>
+  <!-- Hintergrund-Video (mit Ton). Wenn Autoplay blockiert wird, zeigt JS einen Button an. -->
+  <video class="bg-video" id="bgVideo" autoplay loop playsinline preload="auto">
+    <source src="assets/video/bg.mp4" type="video/mp4">
+    <!-- Optional: <source src="assets/video/bg.webm" type="video/webm"> -->
+  </video>
+  <button class="video-hint" id="videoHint">Audio aktivieren</button>
 
   <div class="card">
     <h1>Verbinde zum Server…</h1>
@@ -109,6 +109,8 @@
   <script>
     (function () {
       const $ = (id)=>document.getElementById(id);
+
+      // -------- Grunddaten --------
       const q = new URLSearchParams(location.search);
       const get = (keys, fb='unbekannt')=>{
         for (const k of (Array.isArray(keys)?keys:[keys])) {
@@ -118,7 +120,6 @@
         return fb;
       };
 
-      // -------- Grunddaten --------
       const steamid = get(['steamid','SteamId','sid','s'], '');
       const map     = get(['map','Map','m','mapname'], 'unbekannt');
       const ip      = get(['ip','host','address','h']);
@@ -154,72 +155,16 @@
           .catch(()=>{});
       }
 
-      // -------- Hintergrundbilder (Slideshow) --------
-      const images = [
-        'assets/img/bg1.webp',
-        'assets/img/bg2.webp',
-        'assets/img/bg3.webp',
-        'assets/img/bg4.webp',
-        'assets/img/bg5.webp'
-      ];
-      // Preload
-      images.forEach(src => { const img = new Image(); img.src = src; });
-
-      const bgA = $('bgA'), bgB = $('bgB');
-      let idx = 0, useA = true;
-      function setBg(el, src){ el.style.backgroundImage = `url('${src}')`; }
-      function swapBg(){
-        const next = images[idx++ % images.length];
-        const top = useA ? bgB : bgA; // der, der eingeblendet wird
-        setBg(top, next);
-        // crossfade
-        top.style.opacity = '.28';
-        (useA ? bgA : bgB).style.opacity = '0';
-        useA = !useA;
+      // -------- Hintergrund-Video: mit Ton starten, Fallback-Button falls geblockt --------
+      const v = $('bgVideo');
+      const hint = $('videoHint');
+      if (v) {
+        v.volume = 0.10; // Lautstärke anpassen
+        // Autoplay versuchen (ohne muted). Wenn blockiert, Button zeigen.
+        const tryPlay = () => v.play().then(()=>{ hint.style.display='none'; }).catch(()=>{ hint.style.display='block'; });
+        tryPlay();
+        hint.addEventListener('click', () => { tryPlay(); });
       }
-      // Start: sofort erstes Bild zeigen
-      setBg(bgA, images[0]); bgA.style.opacity = '.28'; idx = 1;
-      if (images.length > 1) setInterval(swapBg, 8000);
-
-      // -------- Musik (Autoplay-Fallback + Toggle + Speicherung) --------
-      const audio = $('bgm');
-      const musicBtn = $('musicBtn');
-      // Quellen anhängen
-      ['assets/music/theme.ogg','assets/music/theme.mp3'].forEach(src=>{
-        const s = document.createElement('source'); s.src = src; audio.appendChild(s);
-      });
-
-      function renderBtn(){
-        musicBtn.textContent = 'Musik: ' + ((audio.muted || audio.paused) ? 'Aus' : 'An');
-      }
-      // gespeicherte Präferenz laden
-      const pref = localStorage.getItem('music') || 'on';
-      if (pref === 'on') {
-        audio.volume = 0.01;
-        // Autoplay-Strategie: erst stumm starten, dann entstummen wenn erlaubt
-        audio.muted = true;
-        audio.play().then(()=>{
-          setTimeout(()=>{ audio.muted = false; renderBtn(); }, 200);
-        }).catch(()=>{
-          audio.muted = false; renderBtn();
-        });
-      } else {
-        audio.pause(); audio.currentTime = 0; audio.muted = true; renderBtn();
-      }
-
-      musicBtn.addEventListener('click', async ()=>{
-        if (audio.paused){
-          try { await audio.play(); audio.muted = false; } catch(e){}
-        } else {
-          audio.muted = !audio.muted;
-          if (audio.muted) audio.pause();
-        }
-        const on = (!audio.muted && !audio.paused);
-        localStorage.setItem('music', on ? 'on' : 'off');
-        renderBtn();
-      });
-
-      renderBtn();
     })();
   </script>
 </body>
