@@ -100,7 +100,7 @@
     </div>
 
     <div class="footer">
-      Echoes of the Clone Wars - Vielen Dank, dass du auf unserem Server spielst!<br>
+      Echoes of the Clone Wars - Willkommen!<br>
       Bilder: https://andreasbazylewski.artstation.com (Andreas Bazylewski)<br>
       Music: https://www.youtube.com/watch?v=xpff8KnBA3I (Samuel Kim Music)
     </div>
@@ -195,7 +195,7 @@
       // gespeicherte Präferenz laden
       const pref = localStorage.getItem('music') || 'on';
       if (pref === 'on') {
-        audio.volume = 0.01;
+        audio.volume = 0.2;
         // Autoplay-Strategie: erst stumm starten, dann entstummen wenn erlaubt
         audio.muted = true;
         audio.play().then(()=>{
